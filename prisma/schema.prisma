@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PLAYER
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum CancellationMode {
+  AUTOMATED_REFUND
+  ADMIN_CONTACT
+  NON_REFUNDABLE
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentMethod {
+  ONLINE_MADA
+  ONLINE_APPLE_PAY
+  ONLINE_CARD
+  CASH
+  POS_TERMINAL
+}
+
+enum DayOfWeek {
+  SUNDAY
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+}
+
+model User {
+  id           String    @id @default(uuid())
+  name         String
+  phone        String    @unique
+  email        String?   @unique
+  password     String?   // Added for auth
+  role         Role      @default(PLAYER)
+  languagePref String    @default("ar")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  bookings     Booking[]
+
+  @@map("users")
+}
+
+model Court {
+  id          String    @id @default(uuid())
+  name        String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  bookings    Booking[]
+
+  @@map("courts")
+}
+
+model FacilitySetting {
+  id                      String           @id @default("default")
+  operatingStartHour      Int              @default(16) // 4:00 PM
+  operatingEndHour        Int              @default(24) // 12:00 AM Midnight
+  slotHoldDurationMins    Int              @default(10)
+  cancellationMode        CancellationMode @default(ADMIN_CONTACT)
+  cancellationBufferHours Int              @default(24)
+  updatedAt               DateTime         @updatedAt
+
+  @@map("facility_settings")
+}
+
+model PricingRule {
+  id          String    @id @default(uuid())
+  dayOfWeek   DayOfWeek
+  startHour   Int
+  endHour     Int
+  priceSar    Decimal   @db.Decimal(10, 2)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("pricing_rules")
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  
+  courtId        String
+  court          Court         @relation(fields: [courtId], references: [id])
+  
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id])
+  
+  guestName      String?
+  guestPhone     String?
+
+  startTime      DateTime      
+  endTime        DateTime      
+
+  status         BookingStatus @default(PENDING_PAYMENT)
+  paymentMethod  PaymentMethod
+  totalPriceSar  Decimal       @db.Decimal(10, 2)
+  
+  lockExpiresAt  DateTime?     
+  paymentRef     String?       
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([courtId, startTime, status])
+  @@index([status, lockExpiresAt])
+  @@map("bookings")
+}
