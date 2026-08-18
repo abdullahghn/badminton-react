@@ -45,8 +45,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/admin/login');
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      router.refresh(); // Clears Next.js router client cache
+      router.push('/admin/login');
+    } catch (err) {
+      console.error('Logout failed:', err);
+    }
   };
 
   const navItems = [
