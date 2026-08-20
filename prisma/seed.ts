@@ -1,5 +1,5 @@
 // prisma/seed.ts
-import { PrismaClient, DayOfWeek, Role } from '@prisma/client';
+import { PrismaClient, Role, DayType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -68,25 +68,45 @@ async function main() {
     },
   });
 
-  // 4. Create Default Pricing Rules (Standard 100 SAR, Weekend Peak 150 SAR)
-  const days: DayOfWeek[] = [
-    'SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'
+  // 4. Create Default Pricing Rules (Updated Model)
+  const defaultRules = [
+    {
+      name: 'Standard Off-Peak',
+      dayType: DayType.WEEKDAY,
+      startHour: 8,
+      endHour: 17,
+      ratePerHour: 80.00,
+      isPeak: false,
+      isActive: true,
+    },
+    {
+      name: 'Prime Evening Surge',
+      dayType: DayType.WEEKDAY,
+      startHour: 17,
+      endHour: 23,
+      ratePerHour: 120.00,
+      isPeak: true,
+      isActive: true,
+    },
+    {
+      name: 'Weekend Full Day',
+      dayType: DayType.WEEKEND,
+      startHour: 8,
+      endHour: 23,
+      ratePerHour: 140.00,
+      isPeak: true,
+      isActive: true,
+    },
   ];
 
-  for (const day of days) {
-    const isWeekend = day === 'FRIDAY' || day === 'SATURDAY';
+  for (const rule of defaultRules) {
     const existingRule = await prisma.pricingRule.findFirst({
-      where: { dayOfWeek: day, startHour: 16, endHour: 24 },
+      where: { name: rule.name },
     });
 
     if (!existingRule) {
       await prisma.pricingRule.create({
-        data: {
-          dayOfWeek: day,
-          startHour: 16,
-          endHour: 24,
-          priceSar: isWeekend ? 150.00 : 100.00,
-        },
+        data: rule,
       });
     }
   }
