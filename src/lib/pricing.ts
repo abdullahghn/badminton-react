@@ -1,38 +1,41 @@
 // src/lib/pricing.ts
 import { prisma } from '@/lib/prisma';
-import { DayOfWeek } from '@prisma/client';
+import { DayType } from '@prisma/client';
 
-const DAY_MAP: Record<number, DayOfWeek> = {
-  0: 'SUNDAY',
-  1: 'MONDAY',
-  2: 'TUESDAY',
-  3: 'WEDNESDAY',
-  4: 'THURSDAY',
-  5: 'FRIDAY',
-  6: 'SATURDAY',
-};
+export async function calculateSlotPrice(date: Date, startHour?: number): Promise<number> {
+  const actualHour = startHour ?? date.getHours();
+  const dayIndex = date.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+  const isWeekend = dayIndex === 5 || dayIndex === 6;
+  const targetDayType: DayType = isWeekend ? DayType.WEEKEND : DayType.WEEKDAY;
 
-/**
- * Calculates the SAR price for a 60-minute slot given a start Date object.
- */
-export async function getSlotPriceSar(slotStartTime: Date): Promise<number> {
-  const dayIndex = slotStartTime.getDay();
-  const dayOfWeek = DAY_MAP[dayIndex];
-  const hour = slotStartTime.getHours();
+  try {
+    // Find matching active pricing rule
+    const rule = await prisma.pricingRule.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { dayType: targetDayType },
+          { dayType: DayType.ALL },
+        ],
+        startHour: { lte: actualHour },
+        endHour: { gt: actualHour },
+      },
+      orderBy: { isPeak: 'desc' }, // Prioritize peak rules if overlapping
+    });
 
-  // Query database for a matching pricing rule
-  const rule = await prisma.pricingRule.findFirst({
-    where: {
-      dayOfWeek,
-      startHour: { lte: hour },
-      endHour: { gt: hour },
-    },
-  });
+    if (rule) {
+      return Number(rule.ratePerHour);
+    }
 
-  if (rule) {
-    return Number(rule.priceSar);
+    // Default fallback rate if no specific rule matches
+    return isWeekend ? 140.00 : 80.00;
+  } catch (err) {
+    console.error('Error calculating slot price:', err);
+    return 100.00; // Safe default
   }
+}
 
-  // Fallback price if no rule matches
-  return 100.0;
+// Support both 1-argument (date only) and 2-argument (date + startHour) signatures
+export async function getSlotPriceSar(date: Date, startHour?: number): Promise<number> {
+  return calculateSlotPrice(date, startHour);
 }

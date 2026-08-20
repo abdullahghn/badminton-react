@@ -4,10 +4,10 @@ import {
   CancellationMode, 
   BookingStatus, 
   PaymentMethod, 
-  DayOfWeek 
+  DayType 
 } from '@prisma/client';
 
-export { Role, CancellationMode, BookingStatus, PaymentMethod, DayOfWeek };
+export { Role, CancellationMode, BookingStatus, PaymentMethod, DayType };
 
 export interface TimeSlot {
   courtId: string;
