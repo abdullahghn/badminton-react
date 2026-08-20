@@ -2,16 +2,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { TimeSlot } from '@/types';
 import { Header } from '@/components/calendar/Header';
 import { CourtSection } from '@/components/calendar/CourtSection';
 import { WalkInModal } from '@/components/calendar/WalkInModal';
+import BookingConfirmationModal from '@/components/BookingConfirmationModal';
 
 export default function CalendarPage() {
-  const router = useRouter();
-
-  // DEFAULT TO LIGHT MODE
   const [darkMode, setDarkMode] = useState(false);
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split('T')[0]
@@ -19,13 +16,16 @@ export default function CalendarPage() {
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Cash Modal State
+  // Modal & Confirmation State
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [guestName, setGuestName] = useState('');
-  const [guestPhone, setGuestPhone] = useState('');
+  const [guestPhone, setGuestPhone] = useState('05');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'POS_TERMINAL'>('CASH');
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  // Confirmation Modal State
+  const [confirmedBooking, setConfirmedBooking] = useState<any>(null);
 
   const fetchSlots = () => {
     setLoading(true);
@@ -44,58 +44,45 @@ export default function CalendarPage() {
     fetchSlots();
   }, [selectedDate]);
 
-  const handleOnlineBook = async (slot: TimeSlot) => {
-    try {
-      const res = await fetch('/api/bookings/hold', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          courtId: slot.courtId,
-          startTime: slot.startTime,
-          paymentMethod: 'ONLINE_MADA',
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success && data.data) {
-        router.push(`/checkout/${data.data.id}`);
-      } else {
-        alert(data.error || 'Failed to hold slot');
-      }
-    } catch {
-      alert('Error connecting to checkout service');
-    }
-  };
-
-  const handleCashSubmit = async (e: React.FormEvent) => {
+  const handleReserveSlot = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSlot) return;
+
+    if (!guestName.trim()) {
+      setModalError('Please enter customer name.');
+      return;
+    }
+
+    if (!guestPhone || guestPhone.length < 9) {
+      setModalError('Please enter a valid mobile number (e.g. 05XXXXXXXX).');
+      return;
+    }
 
     setSubmitting(true);
     setModalError(null);
 
     try {
-      const res = await fetch('/api/admin/bookings/cash', {
+      const res = await fetch('/api/bookings/hold', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           courtId: selectedSlot.courtId,
-          startTime: selectedSlot.startTime,
           guestName,
           guestPhone,
-          paymentMethod,
+          startTime: selectedSlot.startTime,
         }),
       });
 
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.data) {
+        setConfirmedBooking(data.data);
         setSelectedSlot(null);
         fetchSlots();
       } else {
-        setModalError(data.error || 'Booking failed');
+        setModalError(data.error || 'Reservation hold failed.');
       }
     } catch {
-      setModalError('An unexpected error occurred');
+      setModalError('An unexpected error occurred while processing reservation.');
     } finally {
       setSubmitting(false);
     }
@@ -132,13 +119,17 @@ export default function CalendarPage() {
               courtName={courtName}
               slots={slots.filter((s) => s.courtName === courtName)}
               darkMode={darkMode}
-              onOnlineBook={handleOnlineBook}
+              onOnlineBook={(slot) => {
+                setSelectedSlot(slot);
+                setGuestName('');
+                setGuestPhone('05');
+                setModalError(null);
+              }}
               onCashBook={(slot, e) => {
                 e.stopPropagation();
                 setSelectedSlot(slot);
                 setGuestName('');
-                setGuestPhone('');
-                setPaymentMethod('CASH');
+                setGuestPhone('05');
                 setModalError(null);
               }}
             />
@@ -157,7 +148,13 @@ export default function CalendarPage() {
         onNameChange={setGuestName}
         onPhoneChange={setGuestPhone}
         onPaymentMethodChange={setPaymentMethod}
-        onSubmit={handleCashSubmit}
+        onSubmit={handleReserveSlot}
+      />
+
+      <BookingConfirmationModal
+        isOpen={!!confirmedBooking}
+        bookingData={confirmedBooking}
+        onClose={() => setConfirmedBooking(null)}
       />
     </div>
   );

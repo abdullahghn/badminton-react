@@ -34,6 +34,8 @@ export async function GET(request: Request) {
       include: {
         court: { select: { id: true, name: true } },
         user: { select: { id: true, name: true, phone: true, email: true } },
+        createdByUser: { select: { id: true, name: true, role: true } },
+        confirmedByUser: { select: { id: true, name: true, role: true } },
       },
       orderBy: { startTime: 'desc' },
       take: 200, // Fetch up to 200 latest records
@@ -54,11 +56,11 @@ export async function GET(request: Request) {
   }
 }
 
-// PATCH /api/admin/bookings - Update booking status (Confirm, Cancel, etc.)
+// PATCH /api/admin/bookings - Update booking status & attach staff confirmation ID
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, status } = body;
+    const { id, status, confirmedByUserId } = body;
 
     if (!id || !status) {
       return NextResponse.json(
@@ -67,12 +69,24 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const updateData: any = { status };
+
+    // When marking a booking as CONFIRMED, record who collected payment & clear lock timer
+    if (status === 'CONFIRMED') {
+      updateData.lockExpiresAt = null;
+      if (confirmedByUserId) {
+        updateData.confirmedByUserId = confirmedByUserId;
+      }
+    }
+
     const updated = await prisma.booking.update({
       where: { id },
-      data: { status },
+      data: updateData,
       include: {
         court: true,
         user: true,
+        createdByUser: { select: { id: true, name: true } },
+        confirmedByUser: { select: { id: true, name: true } },
       },
     });
 

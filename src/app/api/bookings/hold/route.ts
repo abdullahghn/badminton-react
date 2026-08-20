@@ -2,85 +2,90 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSlotPriceSar } from '@/lib/pricing';
-import { CreateOnlineBookingDTO, ApiResponse } from '@/types';
 
 export async function POST(request: Request) {
   try {
-    const body: CreateOnlineBookingDTO = await request.json();
-    const { courtId, startTime, userId, paymentMethod } = body;
+    const body = await request.json();
+    const { courtId, guestName, guestPhone, startTime: rawStartTime, dateStr, startHour } = body;
 
-    if (!courtId || !startTime) {
+    // Strict phone number validation
+    const cleanPhone = guestPhone?.trim();
+    if (!cleanPhone || cleanPhone.length < 9) {
       return NextResponse.json(
-        { success: false, error: 'Court and start time are required' },
+        { success: false, error: 'A valid phone number (e.g. 05XXXXXXXX) is required.' },
         { status: 400 }
       );
     }
 
-    const slotStart = new Date(startTime);
-    const slotEnd = new Date(slotStart);
-    slotEnd.setHours(slotStart.getHours() + 1);
+    if (!guestName?.trim()) {
+      return NextResponse.json(
+        { success: false, error: 'Customer name is required.' },
+        { status: 400 }
+      );
+    }
 
-    const now = new Date();
+    if (!courtId) {
+      return NextResponse.json(
+        { success: false, error: 'Court selection is required.' },
+        { status: 400 }
+      );
+    }
 
-    // 1. Verify slot is not already booked or currently on an active lock
-    const existingBooking = await prisma.booking.findFirst({
+    let startTime: Date;
+    if (rawStartTime) {
+      startTime = new Date(rawStartTime);
+    } else if (dateStr && startHour !== undefined) {
+      startTime = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00`);
+    } else {
+      return NextResponse.json(
+        { success: false, error: 'Valid booking start time or date/hour is required.' },
+        { status: 400 }
+      );
+    }
+
+    const endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+    const hourNumber = startTime.getHours();
+
+    const existing = await prisma.booking.findFirst({
       where: {
         courtId,
-        startTime: slotStart,
-        OR: [
-          { status: 'CONFIRMED' },
-          {
-            status: 'PENDING_PAYMENT',
-            lockExpiresAt: { gt: now },
-          },
-        ],
+        status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
+        startTime: { lte: startTime },
+        endTime: { gt: startTime },
       },
     });
 
-    if (existingBooking) {
+    if (existing) {
       return NextResponse.json(
-        { success: false, error: 'This time slot is no longer available.' },
+        { success: false, error: 'Selected time slot is no longer available.' },
         { status: 409 }
       );
     }
 
-    // 2. Read facility settings for lock duration (default 10 mins)
-    const settings = await prisma.facilitySetting.findUnique({
-      where: { id: 'default' },
-    });
-    const lockMinutes = settings?.slotHoldDurationMins ?? 10;
+    const totalPriceSar = await getSlotPriceSar(startTime, hourNumber);
+    const refCode = `PAY-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
-    // 3. Calculate lock expiration date
-    const lockExpiresAt = new Date(now.getTime() + lockMinutes * 60 * 1000);
-
-    // 4. Calculate price in SAR
-    const priceSar = await getSlotPriceSar(slotStart);
-
-    // 5. Create PENDING_PAYMENT booking
     const booking = await prisma.booking.create({
       data: {
         courtId,
-        userId: userId || null,
-        startTime: slotStart,
-        endTime: slotEnd,
+        guestName: guestName.trim(),
+        guestPhone: cleanPhone,
+        startTime,
+        endTime,
         status: 'PENDING_PAYMENT',
-        paymentMethod,
-        totalPriceSar: priceSar,
-        lockExpiresAt,
+        paymentMethod: 'PAY_AT_VENUE',
+        totalPriceSar,
+        paymentRef: refCode,
+        createdByUserId: null,
       },
+      include: { court: true },
     });
 
-    const response: ApiResponse<typeof booking> = {
-      success: true,
-      message: `Slot locked for ${lockMinutes} minutes`,
-      data: booking,
-    };
-
-    return NextResponse.json(response);
-  } catch (error) {
-    console.error('Error creating booking hold:', error);
+    return NextResponse.json({ success: true, data: booking });
+  } catch (error: any) {
+    console.error('Pay-at-venue hold error:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to hold time slot' },
+      { success: false, error: 'Failed to complete slot reservation.' },
       { status: 500 }
     );
   }

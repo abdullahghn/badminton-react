@@ -1,26 +1,70 @@
 // src/app/api/slots/route.ts
 import { NextResponse } from 'next/server';
-import { generateDaySlots } from '@/lib/slots';
-import { ApiResponse } from '@/types';
+import { prisma } from '@/lib/prisma';
+import { getSlotPriceSar } from '@/lib/pricing';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    // Default to today's date if no date parameter provided
-    const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
+    const dateStr = searchParams.get('date');
 
-    const slots = await generateDaySlots(date);
+    if (!dateStr) {
+      return NextResponse.json(
+        { success: false, error: 'Date parameter is required.' },
+        { status: 400 }
+      );
+    }
 
-    const response: ApiResponse<typeof slots> = {
-      success: true,
-      data: slots,
-    };
+    const courts = await prisma.court.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+    });
 
-    return NextResponse.json(response);
-  } catch (error) {
+    const startOfDay = new Date(`${dateStr}T00:00:00`);
+    const endOfDay = new Date(`${dateStr}T23:59:59`);
+
+    // Fetch confirmed AND pending reservations for the target date
+    const existingBookings = await prisma.booking.findMany({
+      where: {
+        status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
+        startTime: { gte: startOfDay, lte: endOfDay },
+      },
+    });
+
+    const slots: any[] = [];
+    const operatingHours = Array.from({ length: 16 }, (_, i) => i + 8); // 8 AM - 11 PM
+
+    for (const court of courts) {
+      for (const hour of operatingHours) {
+        const slotStartTime = new Date(`${dateStr}T${String(hour).padStart(2, '0')}:00:00`);
+        const slotEndTime = new Date(slotStartTime.getTime() + 60 * 60 * 1000);
+
+        const isBooked = existingBookings.some((b) => {
+          return (
+            b.courtId === court.id &&
+            new Date(b.startTime).getTime() === slotStartTime.getTime()
+          );
+        });
+
+        const priceSar = await getSlotPriceSar(slotStartTime, hour);
+
+        slots.push({
+          id: `${court.id}-${hour}`,
+          courtId: court.id,
+          courtName: court.name,
+          startTime: slotStartTime.toISOString(),
+          endTime: slotEndTime.toISOString(),
+          isAvailable: !isBooked,
+          priceSar,
+        });
+      }
+    }
+
+    return NextResponse.json({ success: true, data: slots });
+  } catch (error: any) {
     console.error('Error fetching slots:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to generate time slots' },
+      { success: false, error: 'Failed to fetch slots.' },
       { status: 500 }
     );
   }

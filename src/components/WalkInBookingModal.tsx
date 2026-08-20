@@ -3,225 +3,236 @@
 
 import { useState, useEffect } from 'react';
 
-interface Court {
-  id: string;
-  name: string;
-}
-
-interface WalkInModalProps {
+interface WalkInBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export default function WalkInBookingModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
-  const [courts, setCourts] = useState<Court[]>([]);
-  const [selectedCourt, setSelectedCourt] = useState('');
+export default function WalkInBookingModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: WalkInBookingModalProps) {
+  const [courts, setCourts] = useState<{ id: string; name: string }[]>([]);
+  const [courtId, setCourtId] = useState('');
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState('05');
   const [dateStr, setDateStr] = useState(new Date().toISOString().split('T')[0]);
-  const [startHour, setStartHour] = useState(17);
+  const [startHour, setStartHour] = useState<number>(8);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'POS_TERMINAL'>('CASH');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
+  // Slot Availability State
+  const [slots, setSlots] = useState<{ hour: number; available: boolean }[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch Courts
   useEffect(() => {
-    if (isOpen) {
-      // Try /api/admin/courts first, fallback to /api/courts
-      const loadCourts = async () => {
-        try {
-          let res = await fetch('/api/admin/courts');
-          if (!res.ok) {
-            res = await fetch('/api/courts');
-          }
-
-          const contentType = res.headers.get('content-type');
-          if (res.ok && contentType && contentType.includes('application/json')) {
-            const data = await res.json();
-            const courtList = data.data || data;
-            if (Array.isArray(courtList)) {
-              setCourts(courtList);
-              if (courtList.length > 0) setSelectedCourt(courtList[0].id);
-            }
-          } else {
-            console.error('Courts API returned non-JSON response');
-          }
-        } catch (err) {
-          console.error('Error fetching courts for modal:', err);
+    if (!isOpen) return;
+    fetch('/api/courts')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data?.length) {
+          setCourts(data.data);
+          if (!courtId) setCourtId(data.data[0].id);
         }
-      };
-
-      loadCourts();
-    }
+      })
+      .catch(console.error);
   }, [isOpen]);
+
+  // Fetch Slots when Date or Court changes
+  useEffect(() => {
+    if (!isOpen || !courtId || !dateStr) return;
+
+    setLoadingSlots(true);
+    fetch(`/api/slots?date=${dateStr}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          const courtSlots = data.data
+            .filter((s: any) => s.courtId === courtId)
+            .map((s: any) => ({
+              hour: new Date(s.startTime).getHours(),
+              available: s.isAvailable,
+            }));
+          setSlots(courtSlots);
+
+          // Default selected hour to the first available slot if current is booked
+          const currentSlot = courtSlots.find((s: any) => s.hour === startHour);
+          if (currentSlot && !currentSlot.available) {
+            const firstAvail = courtSlots.find((s: any) => s.available);
+            if (firstAvail) setStartHour(firstAvail.hour);
+          }
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingSlots(false));
+  }, [isOpen, courtId, dateStr]);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
+    if (!courtId || !guestName.trim() || !guestPhone.trim()) {
+      setError('All fields are required.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
 
     try {
       const res = await fetch('/api/admin/bookings/walk-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          courtId: selectedCourt,
-          guestName,
-          guestPhone,
+          courtId,
+          guestName: guestName.trim(),
+          guestPhone: guestPhone.trim(),
           dateStr,
           startHour: Number(startHour),
           paymentMethod,
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to submit walk-in booking.');
+      const result = await res.json();
+      if (result.success) {
+        onSuccess();
+        onClose();
+      } else {
+        setError(result.error || 'Failed to create walk-in booking.');
       }
-
-      setGuestName('');
-      setGuestPhone('05');
-      onSuccess();
-      onClose();
-    } catch (err: any) {
-      setError(err.message);
+    } catch {
+      setError('An unexpected error occurred.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const formatHour = (hour: number) => {
-    const period = hour >= 12 ? 'PM' : 'AM';
-    const formatted = hour % 12 || 12;
-    return `${formatted}:00 ${period}`;
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 font-sans">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100">
-        {/* HEADER */}
-        <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 font-sans">
+      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 p-6 space-y-5">
+        <div className="flex justify-between items-center border-b pb-3">
           <div>
-            <h2 className="text-base font-black">⚡ Front-Desk Walk-In Booking</h2>
-            <p className="text-[11px] text-slate-400 font-medium mt-0.5">Instant cash / POS desk reservation</p>
+            <h2 className="text-lg font-black text-slate-900">⚡ New Walk-In Booking</h2>
+            <p className="text-xs text-slate-500 font-medium">Record desk payment directly in the ledger</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white font-bold text-sm">✕</button>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 font-bold text-lg">
+            ✕
+          </button>
         </div>
 
-        {/* FORM */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs font-bold">
-          {error && <div className="p-3 bg-rose-50 text-rose-600 rounded-xl border border-rose-100">{error}</div>}
+        {error && (
+          <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-xl font-bold">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Customer Name</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Sultan Al-Otaibi"
+              value={guestName}
+              onChange={(e) => setGuestName(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+            />
+          </div>
 
           <div>
-            <label className="block mb-1 text-slate-500 uppercase tracking-wider text-[10px]">Select Court</label>
-            <select
-              value={selectedCourt}
-              onChange={(e) => setSelectedCourt(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 font-bold focus:outline-none focus:border-indigo-500"
-            >
-              {courts.map((court) => (
-                <option key={court.id} value={court.id}>{court.name}</option>
-              ))}
-            </select>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mobile Phone</label>
+            <input
+              type="tel"
+              required
+              placeholder="05XXXXXXXX"
+              value={guestPhone}
+              onChange={(e) => setGuestPhone(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block mb-1 text-slate-500 uppercase tracking-wider text-[10px]">Date</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Court</label>
+              <select
+                value={courtId}
+                onChange={(e) => setCourtId(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+              >
+                {courts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    🏸 {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
               <input
                 type="date"
                 required
                 value={dateStr}
                 onChange={(e) => setDateStr(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-bold focus:outline-none"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
               />
-            </div>
-
-            <div>
-              <label className="block mb-1 text-slate-500 uppercase tracking-wider text-[10px]">Time Slot</label>
-              <select
-                value={startHour}
-                onChange={(e) => setStartHour(Number(e.target.value))}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-bold focus:outline-none"
-              >
-                {Array.from({ length: 16 }).map((_, i) => {
-                  const hour = i + 8; // 8:00 AM - 11:00 PM
-                  return <option key={hour} value={hour}>{formatHour(hour)}</option>;
-                })}
-              </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block mb-1 text-slate-500 uppercase tracking-wider text-[10px]">Guest Name</label>
-              <input
-                type="text"
-                required
-                placeholder="Full Name"
-                value={guestName}
-                onChange={(e) => setGuestName(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+          {/* DYNAMIC SLOT AVAILABILITY SELECTOR */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              Time Slot {loadingSlots && <span className="text-indigo-600 text-[10px] lowercase">(checking availability...)</span>}
+            </label>
+            <select
+              value={startHour}
+              onChange={(e) => setStartHour(Number(e.target.value))}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+            >
+              {Array.from({ length: 16 }, (_, i) => i + 8).map((hour) => {
+                const slotInfo = slots.find((s) => s.hour === hour);
+                const isBooked = slotInfo ? !slotInfo.available : false;
+                const formattedTime = hour >= 12 ? `${hour === 12 ? 12 : hour - 12}:00 PM` : `${hour}:00 AM`;
 
-            <div>
-              <label className="block mb-1 text-slate-500 uppercase tracking-wider text-[10px]">Mobile Number</label>
-              <input
-                type="text"
-                required
-                placeholder="05XXXXXXXX"
-                value={guestPhone}
-                onChange={(e) => setGuestPhone(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+                return (
+                  <option key={hour} value={hour} disabled={isBooked}>
+                    {formattedTime} {isBooked ? '❌ (Booked / Held)' : '🟢 Available'}
+                  </option>
+                );
+              })}
+            </select>
           </div>
 
           <div>
-            <label className="block mb-1 text-slate-500 uppercase tracking-wider text-[10px]">Payment Method</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('CASH')}
-                className={`py-2 px-3 rounded-xl border text-center transition font-extrabold ${
-                  paymentMethod === 'CASH'
-                    ? 'bg-emerald-50 border-emerald-500 text-emerald-700'
-                    : 'bg-slate-50 border-slate-200 text-slate-500'
-                }`}
-              >
-                💵 Cash Drawer
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('POS_TERMINAL')}
-                className={`py-2 px-3 rounded-xl border text-center transition font-extrabold ${
-                  paymentMethod === 'POS_TERMINAL'
-                    ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
-                    : 'bg-slate-50 border-slate-200 text-slate-500'
-                }`}
-              >
-                💳 POS Card Machine
-              </button>
-            </div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Payment Method</label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as 'CASH' | 'POS_TERMINAL')}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+            >
+              <option value="CASH">💵 Cash at Desk</option>
+              <option value="POS_TERMINAL">💳 POS Card Machine</option>
+            </select>
           </div>
 
-          <div className="pt-3 flex gap-2">
+          <div className="flex gap-3 pt-3">
             <button
               type="button"
               onClick={onClose}
-              className="w-1/3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition"
+              className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="w-2/3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black transition shadow-sm disabled:opacity-50"
+              disabled={submitting}
+              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition shadow-sm disabled:opacity-50"
             >
-              {loading ? 'Processing...' : 'Confirm Walk-In Booking'}
+              {submitting ? 'Creating...' : 'Create Booking'}
             </button>
           </div>
         </form>
