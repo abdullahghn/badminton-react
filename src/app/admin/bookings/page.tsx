@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import WalkInBookingModal from '@/components/WalkInBookingModal';
 
 interface BookingRecord {
   id: string;
@@ -27,6 +28,9 @@ export default function BookingsLedgerPage() {
   const [globalFilter, setGlobalFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'ALL' | 'CONFIRMED' | 'PENDING_PAYMENT' | 'CANCELLED'>('ALL');
   
+  // Walk-In Modal State
+  const [isWalkInOpen, setIsWalkInOpen] = useState(false);
+
   // Sorting & Pagination state
   const [sortField, setSortField] = useState<SortField>('startTime');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -158,13 +162,22 @@ export default function BookingsLedgerPage() {
           </p>
         </div>
 
-        <button
-          onClick={handleExportCSV}
-          disabled={!data.length}
-          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black transition flex items-center gap-2 shadow-sm disabled:opacity-50"
-        >
-          <span>📥</span> Export CSV Ledger
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsWalkInOpen(true)}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-sm"
+          >
+            <span>⚡</span> New Walk-In Booking
+          </button>
+
+          <button
+            onClick={handleExportCSV}
+            disabled={!data.length}
+            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black transition flex items-center gap-2 shadow-sm disabled:opacity-50"
+          >
+            <span>📥</span> Export CSV Ledger
+          </button>
+        </div>
       </div>
 
       {/* FILTER TABS & SEARCH */}
@@ -351,6 +364,13 @@ export default function BookingsLedgerPage() {
           </div>
         )}
       </div>
+
+      {/* WALK-IN QUICK BOOKING MODAL */}
+      <WalkInBookingModal
+        isOpen={isWalkInOpen}
+        onClose={() => setIsWalkInOpen(false)}
+        onSuccess={fetchBookings}
+      />
     </div>
   );
 }

@@ -55,10 +55,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   };
 
   const navItems = [
-    { href: '/admin/dashboard', label: 'Executive Dashboard', icon: '📊' },
-    { href: '/admin/bookings', label: 'Bookings Ledger', icon: '📋' },
-    { href: '/admin/courts', label: 'Facility & Courts', icon: '🏸' },
-    { href: '/calendar', label: 'Public Calendar', icon: '🗓️' },
+    { name: 'Executive Dashboard', href: '/admin/dashboard', icon: '📊' },
+    { name: 'Bookings Ledger', href: '/admin/bookings', icon: '📋' },
+    { name: 'Facility & Courts', href: '/admin/courts', icon: '🏸' },
+    { name: 'Pricing Manager', href: '/admin/pricing', icon: '🏷️' }, // Added Link
+    { name: 'Public Calendar', href: '/calendar', icon: '📅' },
   ];
 
   return (
@@ -78,21 +79,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           {/* NAV LINKS */}
-          <nav className="space-y-1.5">
+          <nav className="space-y-1.5 ">
             {navItems.map((item) => {
               const isActive = pathname === item.href;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-extrabold transition ${
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-extrabold transition ${
                     isActive
-                      ? 'bg-lime-400 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
                 >
-                  <span className="text-base">{item.icon}</span>
-                  <span>{item.label}</span>
+                  <span className="text-sm">{item.icon}</span>
+                  <span>{item.name}</span>
                 </Link>
               );
             })}
